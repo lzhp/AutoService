@@ -32,13 +32,13 @@ public class EntryService implements IAccessor, IProcessor, IReleaser {
 
 	@Override
 	public void release(String lockID, String params) {
-		// TODO Auto-generated method stub
+		
 
 	}
 
 	@Override
 	public void release(Object workItem, String params) {
-		// TODO Auto-generated method stub
+		
 
 	}
 }

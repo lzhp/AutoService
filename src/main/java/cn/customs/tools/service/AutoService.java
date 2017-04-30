@@ -1,17 +1,22 @@
 package cn.customs.tools.service;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Strings;
+
 import cn.customs.tools.service.util.LogHelper;
+import cn.customs.tools.service.util.ReflectHelper;
 
 /**
  * @author lizhipeng
  * @version 1.0
  */
-public class AutoService implements IAutoService {
+public class AutoService {
 
 	/**
 	 * 缓冲队列
@@ -22,7 +27,7 @@ public class AutoService implements IAutoService {
 	/**
 	 * 提供的锁id
 	 */
-	private String lockID = null;
+	private String lockID = "";
 
 	/**
 	 * 等待时间
@@ -39,19 +44,21 @@ public class AutoService implements IAutoService {
 	/**
 	 * 访问器和处理器参数
 	 */
-	private String accessorParams = null;
-	private String processorParams = null;
+	private String accessorParams = "";
+	private String processorParams = "";
 
 	/**
 	 * 访问器和处理器
 	 */
-	private String accessorName = null;
-	private String processorName = null;
+	private String accessorName = "";
+	private String processorName = "";
 
 	/**
 	 * 解锁器
 	 */
-	private String releaserName = null;
+	private String releaserName = "";
+	private String releaserParams = "";
+	private Unlock unlock = new Unlock();
 
 	public AutoService() {
 
@@ -65,15 +72,16 @@ public class AutoService implements IAutoService {
 
 	public void start() {
 		init();
-
 		LogHelper.info(Thread.currentThread().getName() + " service begin:" + this.toString());
+
+		LogHelper.info(Thread.currentThread().getName() + " unlock now: lockID=[" + lockID + "];releaserParams=["
+				+ releaserParams + "]");
+		
+		// 先将以前的解锁
+		unlock.release(lockID, releaserParams);
+
 		for (int i = 0; i < accessorThreadCounts; i++) {
 			producer[i] = new Producer();
-			producer[i].setAccessorIdleSeconds(accessorIdleSeconds);
-			producer[i].setAccessorName(accessorName);
-			producer[i].setAccessorParams(accessorParams);
-			producer[i].setLockID(lockID);
-			producer[i].setQueues(queues);
 			producer[i].setStop(false);
 			threadProducer[i] = new Thread(producer[i]);
 			threadProducer[i].start();
@@ -81,18 +89,15 @@ public class AutoService implements IAutoService {
 
 		for (int i = 0; i < processorThreadCounts; i++) {
 			consumer[i] = new Consumer();
-			consumer[i].setProcessorIdleSeconds(processorIdleSeconds);
-			consumer[i].setProcessor(processorName);
-			consumer[i].setProcessorParams(processorParams);
-			consumer[i].setQueues(queues);
 			consumer[i].setStop(false);
 			threadConsumer[i] = new Thread(consumer[i]);
 			threadConsumer[i].start();
 		}
-
 	}
 
 	public void stop() {
+		
+		//先停生产者
 		for (int i = 0; i < accessorThreadCounts; i++) {
 			producer[i].setStop(true);
 		}
@@ -100,7 +105,7 @@ public class AutoService implements IAutoService {
 		try {
 			Thread.sleep(1000);
 		} catch (InterruptedException e) {
-			e.printStackTrace();
+			LogHelper.error("Sleep error", e);
 		}
 
 		for (int i = 0; i < processorThreadCounts; i++) {
@@ -116,6 +121,7 @@ public class AutoService implements IAutoService {
 				e.printStackTrace();
 			}
 		}
+		LogHelper.debug("producer shutdown ok!");
 		for (int i = 0; i < processorThreadCounts; i++) {
 			try {
 				threadConsumer[i].join();
@@ -123,13 +129,22 @@ public class AutoService implements IAutoService {
 				e.printStackTrace();
 			}
 		}
+		LogHelper.debug("consumer shutdown ok!");
 
+		release();
 		LogHelper.debug("shutdown ok!");
 	}
 
 	private void init() {
 
-		queues = new LinkedBlockingQueue<Object>(10);
+		// 暂时用机器名地址做锁
+		try {
+			lockID = InetAddress.getLocalHost().getHostName();
+		} catch (UnknownHostException e) {
+			e.printStackTrace();
+		}
+
+		queues = new LinkedBlockingQueue<Object>(queueSize);
 
 		producer = new Producer[accessorThreadCounts];
 		consumer = new Consumer[processorThreadCounts];
@@ -142,7 +157,18 @@ public class AutoService implements IAutoService {
 	 * 释放队列里没有处理的内容
 	 */
 	private void release() {
+		Object workItem = null;
+		while (queues.size() > 0) {
+			try {
+				workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
 
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+			if (workItem != null) {
+				unlock.release(workItem, releaserParams);
+			}
+		}
 	}
 
 	@Override
@@ -186,166 +212,109 @@ public class AutoService implements IAutoService {
 		this.processorName = processorName;
 	}
 
-}
-
-class Producer implements Runnable {
-
-	private boolean stop = false;
-	private int accessorIdleSeconds = 50;
-	private String accessorName = null;
-	private String accessorParams = null;
-	private BlockingQueue<Object> queues = null;
-	private String lockID = null;
-
-	public void setStop(boolean stop) {
-		this.stop = stop;
+	public void setQueueSize(int queueSize) {
+		this.queueSize = queueSize;
 	}
 
-	@Override
-	public void run() {
-		IAccessor accessor = null;
-		try {
-			Class<?> c = Class.forName(accessorName);
-			accessor = (IAccessor) c.newInstance();
-		} catch (InstantiationException | IllegalAccessException e) {
-			LogHelper.error("创建类失败：" + accessorName, e);
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-		} catch (SecurityException e) {
-			e.printStackTrace();
-		} catch (IllegalArgumentException e) {
-			e.printStackTrace();
+	public void setReleaserName(String releaserName) {
+		this.releaserName = releaserName;
+	}
+
+	public void setReleaserParams(String releaserParams) {
+		this.releaserParams = releaserParams;
+	}
+
+	class Producer implements Runnable {
+
+		private boolean stop = false;
+
+		public void setStop(boolean stop) {
+			this.stop = stop;
 		}
 
-		LogHelper.debug(Thread.currentThread().getName() + "producer begin!");
-		List<Object> workItems = null;
-		while (!stop) {
-			workItems = accessor.access(lockID, accessorParams);
+		@Override
+		public void run() {
+			IAccessor accessor = (IAccessor) ReflectHelper.getClassInstance(accessorName);
 
-			if (workItems != null) {
-				for (Object o : workItems) {
+			LogHelper.debug(Thread.currentThread().getName() + "producer begin!");
+			List<Object> workItems = null;
+			while (!stop) {
+				workItems = accessor.access(lockID, accessorParams);
+
+				if (workItems != null) {
+					for (Object o : workItems) {
+						try {
+							// release if can't add in
+							if (!queues.offer(o, accessorIdleSeconds, TimeUnit.SECONDS)) {
+								unlock.release(o, releaserParams);
+							}
+						} catch (InterruptedException e) {
+							LogHelper.error("error when put to queue:" + o.toString(), e);
+						}
+					}
+				} else {
 					try {
-						queues.put(o);
+						Thread.sleep(accessorIdleSeconds * 1000);
 					} catch (InterruptedException e) {
-						LogHelper.error("error when put to queue:" + o.toString(), e);
+						LogHelper.error("error when sleep", e);
 					}
 				}
-			} else {
+			}
+			LogHelper.debug(Thread.currentThread().getName() + "producer quit!");
+		}
+	}
+
+	class Consumer implements Runnable {
+		private boolean stop = false;
+
+		@Override
+		public void run() {
+			IProcessor process = (IProcessor) ReflectHelper.getClassInstance(processorName);
+
+			LogHelper.debug(Thread.currentThread().getName() + "consumer begin!");
+			Object workItem = null;
+			while (!stop) {
 				try {
-					Thread.sleep(accessorIdleSeconds * 1000);
+					workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
 				} catch (InterruptedException e) {
-					LogHelper.error("error when sleep", e);
+					e.printStackTrace();
+				}
+				if (workItem != null) {
+					process.process(workItem, processorParams);
 				}
 			}
-		}
-		LogHelper.debug(Thread.currentThread().getName() + "producer quit!");
-	}
-
-	public void setAccessorIdleSeconds(int accessorIdleSeconds) {
-		this.accessorIdleSeconds = accessorIdleSeconds;
-	}
-
-	public void setAccessorName(String accessorName) {
-		this.accessorName = accessorName;
-	}
-
-	public void setAccessorParams(String accessorParams) {
-		this.accessorParams = accessorParams;
-	}
-
-	public void setQueues(BlockingQueue<Object> queues) {
-		this.queues = queues;
-	}
-
-	public void setLockID(String lockID) {
-		this.lockID = lockID;
-	}
-
-}
-
-class Consumer implements Runnable {
-
-	private BlockingQueue<Object> queues = null;
-	private boolean stop = false;
-	private String processorParams = null;
-	private int processorIdleSeconds = 50;
-	private String processorName = null;
-
-	@Override
-	public void run() {
-		IProcessor process = null;
-		try {
-			Class<?> c = Class.forName(processorName);
-			process = (IProcessor) c.newInstance();
-		} catch (InstantiationException | IllegalAccessException e) {
-			LogHelper.error("创建类失败：" + processorName, e);
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-		} catch (SecurityException e) {
-			e.printStackTrace();
-		} catch (IllegalArgumentException e) {
-			e.printStackTrace();
+			LogHelper.debug(Thread.currentThread().getName() + "consumer quit!");
 		}
 
-		LogHelper.debug(Thread.currentThread().getName() + "consumer begin!");
-		Object workItem = null;
-		while (!stop) {
-			try {
-				workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-			if (workItem != null) {
-				process.process(workItem, processorParams);
+		public void setStop(boolean stop) {
+			this.stop = stop;
+		}
+
+	}
+
+	class Unlock {
+
+		public void release(Object workItem, String params) {
+			IReleaser releaser = getReleaser();
+			if (releaser!=null){
+			releaser.release(workItem, params);
 			}
 		}
-		LogHelper.debug(Thread.currentThread().getName() + "consumer quit!");
-	}
 
-	public void setProcessorIdleSeconds(int processorIdleSeconds) {
-		this.processorIdleSeconds = processorIdleSeconds;
-	}
-
-	public void setProcessorParams(String processorParams) {
-		this.processorParams = processorParams;
-	}
-
-	public void setProcessor(String processorName) {
-		this.processorName = processorName;
-	}
-
-	public void setStop(boolean stop) {
-		this.stop = stop;
-	}
-
-	public void setQueues(BlockingQueue<Object> queues) {
-		this.queues = queues;
-	}
-}
-
-class Unlock {
-
-	private String releaserName = null;
-	
-	public void release(Object workItem, String params){
-		IReleaser releaser = getReleaser();
-		releaser.release(workItem, params); 
-	}
-	
-	public void release(String lockID, String params){
-		IReleaser releaser = getReleaser();
-		releaser.release(lockID, params);		
-	}
-
-	private IReleaser getReleaser() {
-		IReleaser releaser = null;
-		try {
-			Class<?> c = Class.forName(releaserName);
-			releaser = (IReleaser) c.newInstance();
-		} catch (InstantiationException | IllegalAccessException | IllegalArgumentException | ClassNotFoundException
-				| SecurityException e) {
-			LogHelper.error("create class failure：" + releaserName, e);
+		public void release(String lockID, String params) {
+			IReleaser releaser = getReleaser();
+			if (releaser!=null){
+				releaser.release(lockID, params);
+			}
 		}
-		return releaser;
+
+		private IReleaser getReleaser() {
+			if (Strings.isNullOrEmpty(releaserName)){
+				return null;
+			}
+			IReleaser releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
+			return releaser;
+		}
 	}
+
 }

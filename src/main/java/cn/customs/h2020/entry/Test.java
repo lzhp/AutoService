@@ -13,7 +13,9 @@ public class Test {
 		service.setProcessorIdleSeconds(1);
 		service.setProcessorName("cn.customs.h2020.entry.EntryService");
 		service.setProcessorParams("");
-		service.setProcessorThreadCounts(3);
+		service.setProcessorThreadCounts(4);
+		service.setReleaserName("cn.customs.h2020.entry.EntryService");
+		service.setReleaserParams("");
 		
 		service.start();
 		
@@ -21,7 +23,7 @@ public class Test {
 		
 		service.stop();
 		
-		Thread.sleep(2*1000);
+		//Thread.sleep(2*1000);
 	}
 
 }
