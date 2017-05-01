@@ -7,6 +7,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import cn.customs.tools.service.util.LogHelper;
@@ -21,13 +22,16 @@ public class AutoService {
 	/**
 	 * 缓冲队列
 	 */
-	BlockingQueue<Object> queues = null;
-	private int queueSize = 10;
-
+	private BlockingQueue<Object> queues = null;
 	/**
 	 * 提供的锁id
 	 */
 	private String lockID = "";
+
+	/**
+	 * 缓冲队列的长度
+	 */
+	private int queueSize = 10;
 
 	/**
 	 * 等待时间
@@ -54,11 +58,11 @@ public class AutoService {
 	private String processorName = "";
 
 	/**
-	 * 解锁器
+	 * 解锁，清理
 	 */
 	private String releaserName = "";
 	private String releaserParams = "";
-	private Unlock unlock = new Unlock();
+	private Releaser releaser = new Releaser();
 
 	public AutoService() {
 
@@ -71,71 +75,79 @@ public class AutoService {
 	Thread[] threadConsumer;
 
 	public void start() {
-		init();
-		LogHelper.info(Thread.currentThread().getName() + " service begin:" + this.toString());
 
-		LogHelper.info(Thread.currentThread().getName() + " unlock now: lockID=[" + lockID + "];releaserParams=["
-				+ releaserParams + "]");
-		
-		// 先将以前的解锁
-		unlock.release(lockID, releaserParams);
+		try {
+			LogHelper.info(" service init params...");
 
-		for (int i = 0; i < accessorThreadCounts; i++) {
-			producer[i] = new Producer();
-			producer[i].setStop(false);
-			threadProducer[i] = new Thread(producer[i]);
-			threadProducer[i].start();
-		}
+			init();
+			LogHelper.info(" service init params ok:" + this.toString());
 
-		for (int i = 0; i < processorThreadCounts; i++) {
-			consumer[i] = new Consumer();
-			consumer[i].setStop(false);
-			threadConsumer[i] = new Thread(consumer[i]);
-			threadConsumer[i].start();
+			// 先将以前的解锁
+			releaser.releaseAll(lockID, releaserParams);
+
+			for (int i = 0; i < accessorThreadCounts; i++) {
+				producer[i] = new Producer();
+				producer[i].setStop(false);
+				threadProducer[i] = new Thread(producer[i]);
+				threadProducer[i].start();
+			}
+			LogHelper.info(" Producer init ok:[" + accessorThreadCounts + "] threads");
+
+			for (int i = 0; i < processorThreadCounts; i++) {
+				consumer[i] = new Consumer();
+				consumer[i].setStop(false);
+				threadConsumer[i] = new Thread(consumer[i]);
+				threadConsumer[i].start();
+			}
+			LogHelper.info(" Consumer init ok:[" + processorThreadCounts + "] threads");
+		} catch (Throwable t) {
+			LogHelper.error("fetal error when startup:" + this.toString(), t);
 		}
 	}
 
 	public void stop() {
-		
-		//先停生产者
-		for (int i = 0; i < accessorThreadCounts; i++) {
-			producer[i].setStop(true);
-		}
 
 		try {
+			LogHelper.info(" begin to shutdown...");
+
+			// 先停生产者
+			for (int i = 0; i < accessorThreadCounts; i++) {
+				producer[i].setStop(true);
+			}
+
+			LogHelper.info(" wait a moment for consumer..");
 			Thread.sleep(1000);
-		} catch (InterruptedException e) {
-			LogHelper.error("Sleep error", e);
-		}
 
-		for (int i = 0; i < processorThreadCounts; i++) {
-			consumer[i].setStop(true);
-		}
+			for (int i = 0; i < processorThreadCounts; i++) {
+				consumer[i].setStop(true);
+			}
 
-		LogHelper.debug("begin shutdown");
+			LogHelper.debug("wait all threads shutdown...");
 
-		for (int i = 0; i < accessorThreadCounts; i++) {
-			try {
+			for (int i = 0; i < accessorThreadCounts; i++) {
 				threadProducer[i].join();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
 			}
-		}
-		LogHelper.debug("producer shutdown ok!");
-		for (int i = 0; i < processorThreadCounts; i++) {
-			try {
-				threadConsumer[i].join();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
-		LogHelper.debug("consumer shutdown ok!");
+			LogHelper.debug("producer shutdown ok!");
 
-		release();
-		LogHelper.debug("shutdown ok!");
+			for (int i = 0; i < processorThreadCounts; i++) {
+				threadConsumer[i].join();
+			}
+			LogHelper.debug("consumer shutdown ok!");
+
+			release();
+			LogHelper.debug("shutdown ok!");
+
+		} catch (Throwable t) {
+			LogHelper.error("fetal error when shutdown:" + this.toString(), t);
+		}
 	}
 
 	private void init() {
+
+		// 必须初始化的检查
+		Preconditions.checkArgument(!Strings.isNullOrEmpty(accessorName), "accessorName is empty");
+		Preconditions.checkArgument(accessorThreadCounts > 0,
+				"accessorThreadCounts must bigger than 0, now is [" + accessorThreadCounts + "]");
 
 		// 暂时用机器名地址做锁
 		try {
@@ -144,6 +156,10 @@ public class AutoService {
 			e.printStackTrace();
 		}
 
+		// 如果没有配置处理器，那就不做
+		if (Strings.isNullOrEmpty(processorName)) {
+			processorThreadCounts = 0;
+		}
 		queues = new LinkedBlockingQueue<Object>(queueSize);
 
 		producer = new Producer[accessorThreadCounts];
@@ -166,7 +182,7 @@ public class AutoService {
 				e.printStackTrace();
 			}
 			if (workItem != null) {
-				unlock.release(workItem, releaserParams);
+				releaser.release(workItem, releaserParams);
 			}
 		}
 	}
@@ -236,7 +252,7 @@ public class AutoService {
 		public void run() {
 			IAccessor accessor = (IAccessor) ReflectHelper.getClassInstance(accessorName);
 
-			LogHelper.debug(Thread.currentThread().getName() + "producer begin!");
+			LogHelper.debug("producer begin!");
 			List<Object> workItems = null;
 			while (!stop) {
 				workItems = accessor.access(lockID, accessorParams);
@@ -246,7 +262,7 @@ public class AutoService {
 						try {
 							// release if can't add in
 							if (!queues.offer(o, accessorIdleSeconds, TimeUnit.SECONDS)) {
-								unlock.release(o, releaserParams);
+								releaser.release(o, releaserParams);
 							}
 						} catch (InterruptedException e) {
 							LogHelper.error("error when put to queue:" + o.toString(), e);
@@ -260,7 +276,7 @@ public class AutoService {
 					}
 				}
 			}
-			LogHelper.debug(Thread.currentThread().getName() + "producer quit!");
+			LogHelper.debug("producer quit!");
 		}
 	}
 
@@ -271,7 +287,7 @@ public class AutoService {
 		public void run() {
 			IProcessor process = (IProcessor) ReflectHelper.getClassInstance(processorName);
 
-			LogHelper.debug(Thread.currentThread().getName() + "consumer begin!");
+			LogHelper.debug("consumer begin!");
 			Object workItem = null;
 			while (!stop) {
 				try {
@@ -283,7 +299,7 @@ public class AutoService {
 					process.process(workItem, processorParams);
 				}
 			}
-			LogHelper.debug(Thread.currentThread().getName() + "consumer quit!");
+			LogHelper.info("consumer quit!");
 		}
 
 		public void setStop(boolean stop) {
@@ -292,28 +308,30 @@ public class AutoService {
 
 	}
 
-	class Unlock {
+	class Releaser {
+
+		private IReleaser releaser = null;
 
 		public void release(Object workItem, String params) {
-			IReleaser releaser = getReleaser();
-			if (releaser!=null){
-			releaser.release(workItem, params);
+			if (releaser != null) {
+				releaser.release(workItem, params);
 			}
 		}
 
-		public void release(String lockID, String params) {
-			IReleaser releaser = getReleaser();
-			if (releaser!=null){
-				releaser.release(lockID, params);
+		public void releaseAll(String lockID, String params) {
+			if (releaser != null) {
+				releaser.releaseAll(lockID, params);
 			}
 		}
 
-		private IReleaser getReleaser() {
-			if (Strings.isNullOrEmpty(releaserName)){
-				return null;
+		public Releaser() {
+			if (Strings.isNullOrEmpty(releaserName)) {
+				return;
 			}
-			IReleaser releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
-			return releaser;
+
+			if (releaser == null) {
+				releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
+			}
 		}
 	}
 

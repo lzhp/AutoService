@@ -5,12 +5,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.Lists;
 
-import cn.customs.tools.service.IAccessor;
-import cn.customs.tools.service.IProcessor;
-import cn.customs.tools.service.IReleaser;
+import cn.customs.tools.service.IAutoService;
 import cn.customs.tools.service.util.LogHelper;
 
-public class EntryService implements IAccessor, IProcessor, IReleaser {
+public class EntryService implements IAutoService{
 
 	private static AtomicInteger count = new AtomicInteger();
 
@@ -31,7 +29,7 @@ public class EntryService implements IAccessor, IProcessor, IReleaser {
 	}
 
 	@Override
-	public void release(String lockID, String params) {
+	public void releaseAll(String lockID, String params) {
 		
 
 	}

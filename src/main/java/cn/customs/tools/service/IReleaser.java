@@ -13,6 +13,6 @@ public interface IReleaser {
 	 */
 	public void release(Object workItem, String releaserParams);
 	
-	public void release(String lockID, String releaserParams);
+	public void releaseAll(String lockID, String releaserParams);
 
 }
