@@ -1,4 +1,4 @@
-package cn.customs.tools.service.util;
+package cn.lzhp.tools.service.util;
 
 import java.util.Date;
 

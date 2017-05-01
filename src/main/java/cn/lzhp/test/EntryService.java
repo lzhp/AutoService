@@ -1,12 +1,12 @@
-package cn.customs.h2020.entry;
+package cn.lzhp.test;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.Lists;
 
-import cn.customs.tools.service.IAutoService;
-import cn.customs.tools.service.util.LogHelper;
+import cn.lzhp.tools.service.IAutoService;
+import cn.lzhp.tools.service.util.LogHelper;
 
 public class EntryService implements IAutoService{
 

@@ -1,4 +1,4 @@
-package cn.customs.tools.service;
+package cn.lzhp.tools.service;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -10,8 +10,8 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
-import cn.customs.tools.service.util.LogHelper;
-import cn.customs.tools.service.util.ReflectHelper;
+import cn.lzhp.tools.service.util.LogHelper;
+import cn.lzhp.tools.service.util.ReflectHelper;
 
 /**
  * @author lizhipeng

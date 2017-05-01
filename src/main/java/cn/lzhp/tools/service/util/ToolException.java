@@ -1,4 +1,4 @@
-package cn.customs.tools.service.util;
+package cn.lzhp.tools.service.util;
 
 public class ToolException extends RuntimeException {
 	
