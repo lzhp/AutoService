@@ -20,41 +20,35 @@ import cn.lzhp.tools.service.util.ReflectHelper;
 public class AutoService {
 
 	/**
+	 * 服务名
+	 */
+	private String serviceName = "";
+
+	/**
 	 * 缓冲队列
 	 */
 	private BlockingQueue<Object> queues = null;
+	private int queueSize = 10;
+
 	/**
 	 * 提供的锁id
 	 */
 	private String lockID = "";
 
 	/**
-	 * 缓冲队列的长度
-	 */
-	private int queueSize = 10;
-
-	/**
-	 * 等待时间
+	 * 访问器
 	 */
 	private int accessorIdleSeconds = 2;
-	private int processorIdleSeconds = 2;
-
-	/**
-	 * 启动的线程数量
-	 */
 	private int accessorThreadCounts = 1;
-	private int processorThreadCounts = 5;
-
-	/**
-	 * 访问器和处理器参数
-	 */
 	private String accessorParams = "";
-	private String processorParams = "";
+	private String accessorName = "";
 
 	/**
-	 * 访问器和处理器
+	 * 处理器
 	 */
-	private String accessorName = "";
+	private int processorIdleSeconds = 2;
+	private int processorThreadCounts = 5;
+	private String processorParams = "";
 	private String processorName = "";
 
 	/**
@@ -62,7 +56,7 @@ public class AutoService {
 	 */
 	private String releaserName = "";
 	private String releaserParams = "";
-	private Releaser releaser = new Releaser();
+	private Releaser releaser = null;
 
 	public AutoService() {
 
@@ -116,7 +110,7 @@ public class AutoService {
 			}
 
 			LogHelper.info(" wait a moment for consumer..");
-			Thread.sleep(1000);
+			tryToSleep(2);
 
 			for (int i = 0; i < processorThreadCounts; i++) {
 				consumer[i].setStop(true);
@@ -167,6 +161,8 @@ public class AutoService {
 
 		threadProducer = new Thread[accessorThreadCounts];
 		threadConsumer = new Thread[processorThreadCounts];
+
+		releaser = new Releaser();
 	}
 
 	/**
@@ -189,11 +185,15 @@ public class AutoService {
 
 	@Override
 	public String toString() {
-		return "AutoService [queueSize=" + queueSize + ", accessorIdleSeconds=" + accessorIdleSeconds
-				+ ", processorIdleSeconds=" + processorIdleSeconds + ", accessorThreadCounts=" + accessorThreadCounts
-				+ ", processorThreadCounts=" + processorThreadCounts + ", accessorParams=" + accessorParams
-				+ ", processorParams=" + processorParams + ", accessorName=" + accessorName + ", processorName="
-				+ processorName + ",lockID=" + lockID + "]";
+		return "AutoService [serviceName=" + serviceName + ",queueSize=" + queueSize + ", accessorIdleSeconds="
+				+ accessorIdleSeconds + ", processorIdleSeconds=" + processorIdleSeconds + ", accessorThreadCounts="
+				+ accessorThreadCounts + ", processorThreadCounts=" + processorThreadCounts + ", accessorParams="
+				+ accessorParams + ", processorParams=" + processorParams + ", accessorName=" + accessorName
+				+ ", processorName=" + processorName + ",lockID=" + lockID + "]";
+	}
+
+	public void setServiceName(String serviceName) {
+		this.serviceName = serviceName;
 	}
 
 	public void setAccessorIdleSeconds(int accessorIdleSeconds) {
@@ -240,6 +240,22 @@ public class AutoService {
 		this.releaserParams = releaserParams;
 	}
 
+	private void attemptToRelease(Object workItem) {
+		try {
+			releaser.release(workItem, releaserParams);
+		} catch (Throwable t) {
+			// 出错不管，吃掉错误
+		}
+	}
+
+	private void tryToSleep(int seconds) {
+		try {
+			Thread.sleep(seconds * 1000);
+		} catch (InterruptedException e) {
+			LogHelper.error("error when sleep", e);
+		}
+	}
+
 	class Producer implements Runnable {
 
 		private boolean stop = false;
@@ -250,33 +266,43 @@ public class AutoService {
 
 		@Override
 		public void run() {
+			LogHelper.info("producer begin!");
+			try {
+				produceData();
+				LogHelper.info("producer quit!");
+			} catch (Throwable t) {
+				LogHelper.error("producer quit with ERROR!" + AutoService.this.toString(), t);
+			}
+		}
+
+		private void produceData() {
 			IAccessor accessor = (IAccessor) ReflectHelper.getClassInstance(accessorName);
 
-			LogHelper.debug("producer begin!");
 			List<Object> workItems = null;
 			while (!stop) {
-				workItems = accessor.access(lockID, accessorParams);
+				try {
+					workItems = accessor.access(lockID, accessorParams);
+				} catch (Throwable t) {
+					LogHelper.error("error in access!" + AutoService.this.toString(), t);
+				}
 
 				if (workItems != null) {
 					for (Object o : workItems) {
 						try {
-							// release if can't add in
+							// 超时，放不进去，直接解锁，退出
 							if (!queues.offer(o, accessorIdleSeconds, TimeUnit.SECONDS)) {
-								releaser.release(o, releaserParams);
+								LogHelper.debug("queues.offer time out:"+ o.toString());
+								attemptToRelease(o);
 							}
 						} catch (InterruptedException e) {
 							LogHelper.error("error when put to queue:" + o.toString(), e);
+							attemptToRelease(o);
 						}
 					}
 				} else {
-					try {
-						Thread.sleep(accessorIdleSeconds * 1000);
-					} catch (InterruptedException e) {
-						LogHelper.error("error when sleep", e);
-					}
+					tryToSleep(accessorIdleSeconds);
 				}
 			}
-			LogHelper.debug("producer quit!");
 		}
 	}
 
@@ -285,21 +311,38 @@ public class AutoService {
 
 		@Override
 		public void run() {
+			LogHelper.info("consumer begin!");
+			try {
+				consumeData();
+				LogHelper.info("consumer quit!");
+			} catch (Throwable t) {
+				LogHelper.error("consumer quit with ERROR!" + AutoService.this.toString(), t);
+			}
+
+		}
+
+		private void consumeData() {
 			IProcessor process = (IProcessor) ReflectHelper.getClassInstance(processorName);
 
-			LogHelper.debug("consumer begin!");
 			Object workItem = null;
 			while (!stop) {
 				try {
 					workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
 				} catch (InterruptedException e) {
-					e.printStackTrace();
+					// 这里出错不处理即可，没取到，不干活
+					LogHelper.debug("error when poll", e);
 				}
 				if (workItem != null) {
-					process.process(workItem, processorParams);
+					try {
+						process.process(workItem, processorParams);
+					} catch (Throwable t) {
+						LogHelper.error("error when process:" + workItem.toString(), t);
+						// 出错了，尝试解锁
+						attemptToRelease(workItem);
+					}
 				}
 			}
-			LogHelper.info("consumer quit!");
+
 		}
 
 		public void setStop(boolean stop) {
@@ -309,7 +352,6 @@ public class AutoService {
 	}
 
 	class Releaser {
-
 		private IReleaser releaser = null;
 
 		public void release(Object workItem, String params) {
@@ -330,9 +372,12 @@ public class AutoService {
 			}
 
 			if (releaser == null) {
-				releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
+				synchronized (Releaser.class) {
+					if (releaser == null) {
+						releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
+					}
+				}
 			}
 		}
 	}
-
 }

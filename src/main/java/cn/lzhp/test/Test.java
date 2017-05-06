@@ -6,6 +6,8 @@ public class Test {
 
 	public static void main(String[] args) throws InterruptedException {
 		AutoService service = new AutoService();
+		
+		service.setServiceName("EntryService");
 		service.setAccessorIdleSeconds(5);
 		service.setAccessorName("cn.lzhp.test.EntryService");
 		service.setAccessorParams("");
@@ -21,7 +23,7 @@ public class Test {
 		
 		service.start();
 		
-		Thread.sleep(2*1000);
+		Thread.sleep(10*1000);
 		
 		service.stop();
 		
