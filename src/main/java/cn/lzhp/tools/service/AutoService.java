@@ -121,15 +121,15 @@ public class AutoService {
 			for (int i = 0; i < accessorThreadCounts; i++) {
 				threadProducer[i].join();
 			}
-			LogHelper.debug("producer shutdown ok!");
+			LogHelper.info("producer shutdown ok!");
 
 			for (int i = 0; i < processorThreadCounts; i++) {
 				threadConsumer[i].join();
 			}
-			LogHelper.debug("consumer shutdown ok!");
+			LogHelper.info("consumer shutdown ok!");
 
-			release();
-			LogHelper.debug("shutdown ok!");
+			releaseItemsInQueue();
+			LogHelper.info("shutdown ok!");
 
 		} catch (Throwable t) {
 			LogHelper.error("fetal error when shutdown:" + this.toString(), t);
@@ -168,14 +168,14 @@ public class AutoService {
 	/**
 	 * 释放队列里没有处理的内容
 	 */
-	private void release() {
+	private void releaseItemsInQueue() {
 		Object workItem = null;
 		while (queues.size() > 0) {
 			try {
 				workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
-
 			} catch (InterruptedException e) {
-				e.printStackTrace();
+				// 没取到，继续取
+				LogHelper.debug("Can't poll from queue");
 			}
 			if (workItem != null) {
 				releaser.release(workItem, releaserParams);
@@ -245,6 +245,7 @@ public class AutoService {
 			releaser.release(workItem, releaserParams);
 		} catch (Throwable t) {
 			// 出错不管，吃掉错误
+			LogHelper.debug("error in attemptToRelease", t);
 		}
 	}
 
@@ -291,7 +292,7 @@ public class AutoService {
 						try {
 							// 超时，放不进去，直接解锁，退出
 							if (!queues.offer(o, accessorIdleSeconds, TimeUnit.SECONDS)) {
-								LogHelper.debug("queues.offer time out:"+ o.toString());
+								LogHelper.debug("queues.offer time out:" + o.toString());
 								attemptToRelease(o);
 							}
 						} catch (InterruptedException e) {
@@ -366,17 +367,10 @@ public class AutoService {
 			}
 		}
 
-		public Releaser() {
-			if (Strings.isNullOrEmpty(releaserName)) {
-				return;
-			}
-
-			if (releaser == null) {
-				synchronized (Releaser.class) {
-					if (releaser == null) {
-						releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
-					}
-				}
+		{
+			// 需要初始化
+			if (!Strings.isNullOrEmpty(releaserName) && releaser == null) {
+				releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
 			}
 		}
 	}

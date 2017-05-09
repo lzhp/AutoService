@@ -18,7 +18,7 @@ public class Test {
 		service.setProcessorParams("");
 		service.setProcessorThreadCounts(4);
 		
-		service.setReleaserName("cn.lzhp.test.EntryService");
+		service.setReleaserName("cn.lzhp.test.EntryService1");
 		service.setReleaserParams("");
 		
 		service.start();
