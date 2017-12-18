@@ -1,6 +1,12 @@
 package cn.lzhp.tools.service.util;
 
 public class ReflectHelper {
+	
+	
+
+	private ReflectHelper() {
+		throw new IllegalStateException("ReflectHelper class");
+	}
 
 	public static Object getClassInstance(String className) {
 		Object result = null;

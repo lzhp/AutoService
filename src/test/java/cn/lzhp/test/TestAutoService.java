@@ -1,7 +1,8 @@
 package cn.lzhp.test;
 
-import static org.junit.Assert.*;
+import java.util.concurrent.TimeUnit;
 
+import org.awaitility.Awaitility;
 import org.junit.Test;
 
 import cn.lzhp.tools.service.AutoService;
@@ -29,6 +30,8 @@ public class TestAutoService {
 		service.start();
 
 		Thread.sleep(10 * 1000);
+		//Awaitility.await().atLeast(10, TimeUnit.SECONDS);
+		
 
 		service.stop();
 	}

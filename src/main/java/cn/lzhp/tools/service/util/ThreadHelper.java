@@ -6,7 +6,10 @@ package cn.lzhp.tools.service.util;
  */
 public class ThreadHelper {
 	
-
+	private ThreadHelper() {
+		throw new IllegalStateException("ThreadHelper class");
+	}
+	
 	/**
 	 * 返回一个新的线程
 	 * @param run

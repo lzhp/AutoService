@@ -59,7 +59,7 @@ public class AutoService {
 	private Releaser releaser = null;
 
 	public AutoService() {
-
+		//do nothing
 	}
 
 	Producer[] producer;
@@ -154,7 +154,7 @@ public class AutoService {
 		if (Strings.isNullOrEmpty(processorName)) {
 			processorThreadCounts = 0;
 		}
-		queues = new LinkedBlockingQueue<Object>(queueSize);
+		queues = new LinkedBlockingQueue<>(queueSize);
 
 		producer = new Producer[accessorThreadCounts];
 		consumer = new Consumer[processorThreadCounts];
@@ -170,10 +170,11 @@ public class AutoService {
 	 */
 	private void releaseItemsInQueue() {
 		Object workItem = null;
-		while (queues.size() > 0) {
+		while (!queues.isEmpty()) {
 			try {
 				workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
 			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
 				// 没取到，继续取
 				LogHelper.debug("Can't poll from queue");
 			}
@@ -251,8 +252,9 @@ public class AutoService {
 
 	private void tryToSleep(int seconds) {
 		try {
-			Thread.sleep(seconds * 1000);
+			Thread.sleep(seconds * 1000L);
 		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
 			LogHelper.error("error when sleep", e);
 		}
 	}
@@ -296,6 +298,7 @@ public class AutoService {
 								attemptToRelease(o);
 							}
 						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
 							LogHelper.error("error when put to queue:" + o.toString(), e);
 							attemptToRelease(o);
 						}
@@ -330,6 +333,7 @@ public class AutoService {
 				try {
 					workItem = queues.poll(processorIdleSeconds, TimeUnit.SECONDS);
 				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
 					// 这里出错不处理即可，没取到，不干活
 					LogHelper.debug("error when poll", e);
 				}
@@ -353,24 +357,24 @@ public class AutoService {
 	}
 
 	class Releaser {
-		private IReleaser releaser = null;
+		private IReleaser myReleaser = null;
 
 		public void release(Object workItem, String params) {
-			if (releaser != null) {
-				releaser.release(workItem, params);
+			if (myReleaser != null) {
+				myReleaser.release(workItem, params);
 			}
 		}
 
 		public void releaseAll(String lockID, String params) {
-			if (releaser != null) {
-				releaser.releaseAll(lockID, params);
+			if (myReleaser != null) {
+				myReleaser.releaseAll(lockID, params);
 			}
 		}
 
-		{
+		public Releaser(){
 			// 需要初始化
-			if (!Strings.isNullOrEmpty(releaserName) && releaser == null) {
-				releaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
+			if (!Strings.isNullOrEmpty(releaserName) && myReleaser == null) {
+				myReleaser = (IReleaser) ReflectHelper.getClassInstance(releaserName);
 			}
 		}
 	}
