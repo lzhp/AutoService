@@ -31,8 +31,8 @@ public class TestAutoService {
 
 		Thread.sleep(10 * 1000);
 		//Awaitility.await().atLeast(10, TimeUnit.SECONDS);
+		//Awaitility.await().atLeast(10, TimeUnit.SECONDS).and().atMost(11, TimeUnit.SECONDS).until(() -> 1 == 1);
 		
-
 		service.stop();
 	}
 
