@@ -6,13 +6,14 @@ package cn.lzhp.tools.service;
  */
 public interface IReleaser {
 
-	/**
-	 * 
-	 * @param workItem
-	 * @param params
-	 */
-	public void release(Object workItem, String releaserParams);
-	
-	public void releaseAll(String lockID, String releaserParams);
+  /**
+   * 释放接口.
+   * 
+   * @param workItem workitem 
+   * @param releaserParams stringparam
+   */
+  public void release(Object workItem, String releaserParams);
+
+  public void releaseAll(String lockId, String releaserParams);
 
 }

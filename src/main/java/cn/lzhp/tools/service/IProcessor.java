@@ -6,11 +6,11 @@ package cn.lzhp.tools.service;
  */
 public interface IProcessor {
 
-	/**
-	 * 
-	 * @param workItem
-	 * @param params
-	 */
-	public void process(Object workItem, String params);
+  /**
+   * 处理接口.
+   * @param workItem item
+   * @param params stringParams
+   */
+  public void process(Object workItem, String params);
 
 }
