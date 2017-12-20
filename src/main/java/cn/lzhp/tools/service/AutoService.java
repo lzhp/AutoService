@@ -24,7 +24,7 @@ public class AutoService {
   private String serviceName = "";
 
   /**
-   * . 缓冲队列
+   * 缓冲队列.
    */
   private BlockingQueue<Object> queues = null;
   private int queueSize = 10;
